@@ -26,6 +26,15 @@ Updated: 2026-08-14
 - Fly.io is viable for development or downtime-tolerant production as one Machine with one attached volume, but volumes are local to one server and not automatically replicated; this compounds OpenWA's current single-replica availability limit.
 - Kubernetes should follow an existing organizational need, not lead this deployment: the shipped chart is sound, but a single stateful replica gains little from cluster complexity.
 
+## Low-Cost Hosting Assessment (2026-08-14)
+
+- Hetzner Cloud is the preferred low-cost production target. A small x86 VM with 4 GB RAM and 40 GB local SSD is enough to start with one session, preserves the Compose deployment model, and costs roughly EUR 3.49/month before optional public IPv4, backups, and tax. Prefer x86 for the least Chromium friction even though the published image also supports arm64.
+- Oracle Cloud Always Free is the strongest zero-cost technical fit when capacity and account provisioning are available: its Arm allocation and persistent block storage can run the arm64 image. It requires full VM administration and should not be treated as having a production SLA.
+- Railway supports Docker, long-running services, persistent volumes, health checks, and WebSockets. Its Free tier is limited to 0.5 GB RAM and is too small for the normal OpenWA container. Hobby has a USD 5 minimum but bills ongoing RAM/CPU usage, so an always-on 1-2 GB OpenWA service will normally exceed USD 5/month.
+- Render is operationally simple and supports Docker, WebSockets, TLS, health checks, and persistent disks, but the free tier cannot attach a disk and loses session data on restart. A realistic deployment needs a paid 2 GB instance plus persistent disk; 512 MB plans are not a safe default, especially for whatsapp-web.js.
+- Fly.io works with one Machine and one local persistent volume, but has no standing free allowance for new accounts and an always-on 2 GB Machine costs materially more than a small Hetzner VM before volume and egress charges.
+- Vercel Functions cannot act as a WebSocket server and provide neither a durable long-running process nor a persistent writable session filesystem. Vercel can host a separate frontend or webhook adapter, but not the OpenWA gateway.
+
 ## Data Choices
 
 - SQLite plus local media is appropriate for one-node development and modest single-node deployments.
