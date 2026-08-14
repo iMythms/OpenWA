@@ -18,6 +18,14 @@ Updated: 2026-08-14
 3. Container PaaS or VM: deploy the production image only where a persistent volume can be mounted at `/app/data`, WebSockets and long-lived connections are supported, health checks can target `/api/health/ready`, and the service can remain a single replica.
 4. Bare Node.js: possible with Node 22+, system Chromium when using `whatsapp-web.js`, FFmpeg for conversion features, durable storage, and an external process supervisor/reverse proxy; operationally less reproducible than the image.
 
+## Initial Platform Assessment (2026-08-14)
+
+- Recommended first production target: a single Linux VM/VPS with the shipped full Docker Compose stack. It matches the project's stateful, single-replica boundary and offers the most direct backup/recovery path.
+- Simplest managed alternative: Render Docker web service with a persistent disk at `/app/data`; disk attachment enforces a single service instance and Render supports WebSockets, TLS, health checks, managed Postgres, and managed Redis-compatible storage.
+- AWS-native alternative: ECS/Fargate behind an Application Load Balancer, with EFS mounted at `/app/data`, RDS PostgreSQL, and ElastiCache Redis when needed. Keep desired API task count at one.
+- Fly.io is viable for development or downtime-tolerant production as one Machine with one attached volume, but volumes are local to one server and not automatically replicated; this compounds OpenWA's current single-replica availability limit.
+- Kubernetes should follow an existing organizational need, not lead this deployment: the shipped chart is sound, but a single stateful replica gains little from cluster complexity.
+
 ## Data Choices
 
 - SQLite plus local media is appropriate for one-node development and modest single-node deployments.
