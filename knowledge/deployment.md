@@ -28,12 +28,19 @@ Updated: 2026-08-14
 
 ## Low-Cost Hosting Assessment (2026-08-14)
 
-- Hetzner Cloud is the preferred low-cost production target. A small x86 VM with 4 GB RAM and 40 GB local SSD is enough to start with one session, preserves the Compose deployment model, and costs roughly EUR 3.49/month before optional public IPv4, backups, and tax. Prefer x86 for the least Chromium friction even though the published image also supports arm64.
+- Hetzner Cloud is the preferred low-cost production target. After Hetzner's 2026-06-15 price change, the Germany/Finland cost-optimized x86 plans are EUR 5.49/month for CX23 (2 vCPU, 4 GB RAM, 40 GB SSD) and EUR 8.49/month for CX33 (4 vCPU, 8 GB RAM, 80 GB SSD), excluding IPv4, backups, and tax. CX23 is enough to start with one `whatsapp-web.js` session; choose CX33 for a shared multi-business host. Prefer x86 for the least Chromium friction even though the published image also supports arm64.
 - Oracle Cloud Always Free is the strongest zero-cost technical fit when capacity and account provisioning are available: its Arm allocation and persistent block storage can run the arm64 image. It requires full VM administration and should not be treated as having a production SLA.
 - Railway supports Docker, long-running services, persistent volumes, health checks, and WebSockets. Its Free tier is limited to 0.5 GB RAM and is too small for the normal OpenWA container. Hobby has a USD 5 minimum but bills ongoing RAM/CPU usage, so an always-on 1-2 GB OpenWA service will normally exceed USD 5/month.
 - Render is operationally simple and supports Docker, WebSockets, TLS, health checks, and persistent disks, but the free tier cannot attach a disk and loses session data on restart. A realistic deployment needs a paid 2 GB instance plus persistent disk; 512 MB plans are not a safe default, especially for whatsapp-web.js.
 - Fly.io works with one Machine and one local persistent volume, but has no standing free allowance for new accounts and an always-on 2 GB Machine costs materially more than a small Hetzner VM before volume and egress charges.
 - Vercel Functions cannot act as a WebSocket server and provide neither a durable long-running process nor a persistent writable session filesystem. Vercel can host a separate frontend or webhook adapter, but not the OpenWA gateway.
+
+## Multi-Business Topology (2026-08-14)
+
+- One OpenWA process natively supports multiple WhatsApp sessions. For businesses under one trusted owner, prefer one process with one session per WhatsApp account and issue each application a role-limited API key restricted through `allowedSessions`. This shares the dashboard, database, upgrades, and failure domain while avoiding duplicate API overhead.
+- Use separate OpenWA containers only when a business needs a distinct administrator, master key, plugin/configuration set, maintenance schedule, or stronger failure/data isolation. Every container must use a distinct `/app/data` volume, port, network, database/schema, and secret set; containers must never share a session volume.
+- The shipped Compose file has fixed container/network names and should not be launched unchanged multiple times on one host. A multi-instance host needs a production override or generated per-business stack that removes fixed names and assigns unique ports/volumes, preferably with one Caddy/nginx reverse proxy routing subdomains.
+- Verified local reference point with one ready `whatsapp-web.js` session on 2026-08-14: approximately 877 MiB container memory, 176 PIDs, and 159 MiB session data while idle. These are observations, not capacity guarantees; preserve startup spikes and OS/reverse-proxy headroom.
 
 ## Data Choices
 
