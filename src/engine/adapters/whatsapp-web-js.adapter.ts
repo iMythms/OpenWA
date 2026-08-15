@@ -458,6 +458,7 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     this.callbacks = callbacks;
     this.setStatus(EngineStatus.INITIALIZING);
     const initStartedAt = Date.now();
+    let detachedFrameRetryExhausted = false;
 
     // An install that skipped the message-id backport fails later with errors that name no cause
     // (#889) — say so here instead, while the operator is still looking at the startup logs.
@@ -562,11 +563,33 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
           );
           throw attemptError;
         }
-        await this.runInitAttempt(puppeteerArgs, authTimeoutMs, proxyAuthentication, versionPin);
+        try {
+          await this.runInitAttempt(puppeteerArgs, authTimeoutMs, proxyAuthentication, versionPin);
+        } catch (retryError) {
+          const retryReason = retryError instanceof Error ? retryError.message : String(retryError);
+          detachedFrameRetryExhausted = /(?:navigating frame was detached|attempted to use detached frame)/i.test(
+            retryReason,
+          );
+          throw retryError;
+        }
       }
     } catch (error) {
-      this.setStatus(EngineStatus.FAILED);
       const reason = error instanceof Error ? error.message : String(error);
+      // A detached frame on BOTH full launch attempts is not a one-off WhatsApp Web reload. It is
+      // the stable failure shape produced by a Chromium profile carried across an incompatible
+      // browser migration. Reuse the existing one-shot, session-owned stuck-auth recovery budget:
+      // clear only this profile and reconnect the same session row so the operator can re-scan
+      // without changing its UUID, API-key scope, webhooks, or downstream environment variables.
+      if (detachedFrameRetryExhausted && !this.tearingDown) {
+        this.logger.warn(
+          `"${reason}" persisted across both initialization attempts. Clearing the stale browser ` +
+            'profile once and reconnecting the existing session for a fresh QR.',
+          { sessionId: this.config.sessionId, action: 'init_detached_frame_repair' },
+        );
+        await this.recoverFromStuckAuth();
+        return;
+      }
+      this.setStatus(EngineStatus.FAILED);
       // What the dashboard renders as `lastError` is exactly this string and nothing else — the log
       // below never reaches it. Carry a one-line remedy with the reason for the one failure we can
       // actually advise on, so the session card stops being a dead end (#1081).

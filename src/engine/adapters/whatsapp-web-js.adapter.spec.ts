@@ -337,6 +337,26 @@ describe('WhatsAppWebJsAdapter initialize() retry on a navigation-killed first i
     },
   );
 
+  it('clears stale auth once and re-pairs the same session when detached-frame retry is exhausted', async () => {
+    clientInitSpy.mockRejectedValue(new Error('Navigating frame was detached'));
+    const onError = jest.fn();
+    const onDisconnected = jest.fn();
+    const claimStuckAuthRecovery = jest.fn().mockReturnValue(true);
+
+    await expect(newAdapter().initialize({ onError, onDisconnected, claimStuckAuthRecovery })).resolves.toBeUndefined();
+
+    expect(clientInitSpy).toHaveBeenCalledTimes(2);
+    expect(claimStuckAuthRecovery).toHaveBeenCalledTimes(1);
+    expect(onDisconnected).toHaveBeenCalledWith('Saved session could not be restored; cleared for re-pairing');
+    expect(onError).not.toHaveBeenCalled();
+    // Three Singleton files per launch attempt, then the LocalAuth profile itself.
+    expect(rmSpy).toHaveBeenCalledTimes(7);
+    expect(rmSpy).toHaveBeenLastCalledWith(
+      expect.stringContaining('session-sess-nav-retry'),
+      expect.objectContaining({ recursive: true, force: true }),
+    );
+  });
+
   it('fails terminally after the single retry: onError exactly once, raw error rethrown', async () => {
     clientInitSpy.mockRejectedValue(new Error(EXEC_CTX));
     const onError = jest.fn();
