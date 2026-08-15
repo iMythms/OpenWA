@@ -149,6 +149,20 @@ export const READY_RECONCILE_TIMEOUT_MS = 90_000;
 const INJECT_NAVIGATION_RETRY_DELAY_MS = 250;
 const INJECT_NAVIGATION_RETRY_WINDOW_MS = 15_000;
 
+interface NavigationResilientInjectState {
+  invoked: boolean;
+}
+
+interface WwebjsClientInternals extends Client {
+  inject?: () => Promise<void>;
+  lastLoggedOut?: boolean;
+  authStrategy?: {
+    logout: () => Promise<void>;
+    beforeBrowserInitialized: () => Promise<void>;
+    afterBrowserInitialized: () => Promise<void>;
+  };
+}
+
 // How long after `authenticated` the event bridge is allowed to still be attaching before a reload is
 // considered. whatsapp-web.js clears `eventsAttached` in its constructor (Client.js:109) and sets it
 // only once attachEventListeners() resolves (Client.js:373); in between it evaluates LoadUtils, polls
@@ -673,7 +687,7 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       ...(proxyAuthentication ? { proxyAuthentication } : {}),
       ...(versionPin ?? {}),
     });
-    this.installNavigationResilientInject(client);
+    const injectState = this.installNavigationResilientInject(client);
     this.client = client;
 
     this.setupEventHandlers();
@@ -691,7 +705,17 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     // removeStaleSingletonFiles. This runs after the orphan kill above and before this attempt's
     // browser exists, so it cannot pull the files out from under a running Chromium.
     await removeStaleSingletonFiles(this.config.sessionId, this.config.sessionDataPath, this.logger);
-    await client.initialize();
+    try {
+      await client.initialize();
+    } catch (error) {
+      // Chrome 151 can reject page.goto() itself while replacing WhatsApp Web's top frame. That is
+      // earlier than Client.initialize()'s first this.inject(), so the wrapper above has no chance
+      // to observe it. The Client already owns a live Page at that point: keep that page, wait for
+      // its replacement frame, and finish the exact remainder of upstream initialize() in place.
+      // Re-launching a whole Client deterministically re-enters the same goto race on Railway.
+      const recovered = await this.recoverNavigationBeforeInitialInject(client, injectState, error);
+      if (!recovered) throw error;
+    }
     // whatsapp-web.js 1.34.x never observes the Chromium process/page it drives, so a crashed
     // browser leaves the client looking READY forever ("silent death"). Attach death listeners
     // to the puppeteer handles so a dead browser surfaces as a normal disconnect → reconnect.
@@ -709,13 +733,15 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
    * `inject()` from every `framenavigated` event; sharing one in-flight repair prevents two inject
    * pipelines from racing to expose the same page bindings.
    */
-  private installNavigationResilientInject(client: Client): void {
-    const injectable = client as Client & { inject?: () => Promise<void> };
+  private installNavigationResilientInject(client: Client): NavigationResilientInjectState {
+    const state: NavigationResilientInjectState = { invoked: false };
+    const injectable = client as WwebjsClientInternals;
     const originalInject = injectable.inject?.bind(client);
-    if (!originalInject) return;
+    if (!originalInject) return state;
 
     let inFlight: Promise<void> | null = null;
     injectable.inject = (): Promise<void> => {
+      state.invoked = true;
       if (inFlight) return inFlight;
 
       const run = async (): Promise<void> => {
@@ -752,6 +778,73 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       });
       return inFlight;
     };
+    return state;
+  }
+
+  /**
+   * Finish whatsapp-web.js initialization when Chrome detaches the frame DURING page.goto(), before
+   * upstream ever calls inject(). Production proves this boundary via the absence of our
+   * `inject_navigation_retry` log immediately before Client.initialize() rejects. At that point the
+   * Client already exposes its browser Page, so launching another browser is both unnecessary and
+   * harmful: the second page loses the exact same race.
+   */
+  private async recoverNavigationBeforeInitialInject(
+    client: Client,
+    injectState: NavigationResilientInjectState,
+    error: unknown,
+  ): Promise<boolean> {
+    const reason = error instanceof Error ? error.message : String(error);
+    if (injectState.invoked || !isNavigationShapedInitRejection(reason) || this.tearingDown) return false;
+
+    const internal = client as WwebjsClientInternals;
+    const page = internal.pupPage;
+    if (!page || page.isClosed()) return false;
+
+    this.logger.warn(
+      `"${reason}" interrupted WhatsApp Web navigation before its first injection; ` +
+        'waiting for the replacement frame and continuing on the current page',
+      {
+        sessionId: this.config.sessionId,
+        action: 'init_goto_navigation_recovery',
+      },
+    );
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(resolve, INJECT_NAVIGATION_RETRY_DELAY_MS);
+      timer.unref?.();
+    });
+
+    if (!internal.inject) return false;
+    await internal.inject();
+    this.installWwebjsNavigationReinjectHandler(internal);
+    return true;
+  }
+
+  /** Register the handler upstream normally installs immediately after the first successful inject. */
+  private installWwebjsNavigationReinjectHandler(client: WwebjsClientInternals): void {
+    const page = client.pupPage;
+    if (!page || !client.inject) return;
+
+    page.on('framenavigated', frame => {
+      void (async () => {
+        try {
+          if (frame.url().includes('post_logout=1') || client.lastLoggedOut) {
+            client.emit('disconnected', 'LOGOUT');
+            await client.authStrategy?.logout();
+            await client.authStrategy?.beforeBrowserInitialized();
+            await client.authStrategy?.afterBrowserInitialized();
+            client.lastLoggedOut = false;
+          }
+          await client.inject?.();
+        } catch (navigationError) {
+          const message = navigationError instanceof Error ? navigationError.message : String(navigationError);
+          this.logger.error('WhatsApp Web re-injection failed after frame navigation', undefined, {
+            sessionId: this.config.sessionId,
+            error: message,
+            action: 'navigation_reinject_error',
+          });
+        }
+      })();
+    });
   }
 
   /**

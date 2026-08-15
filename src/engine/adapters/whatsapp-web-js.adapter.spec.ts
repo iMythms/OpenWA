@@ -447,7 +447,7 @@ describe('WhatsAppWebJsAdapter initialize() retry on a navigation-killed first i
 describe('WhatsAppWebJsAdapter current-page injection retry', () => {
   type InjectableClient = Client & { inject: () => Promise<void> };
   type AdapterWithInjectRepair = {
-    installNavigationResilientInject: (client: Client) => void;
+    installNavigationResilientInject: (client: Client) => { invoked: boolean };
   };
 
   const wrap = (inject: jest.Mock): { adapter: WhatsAppWebJsAdapter; client: InjectableClient } => {
@@ -514,6 +514,94 @@ describe('WhatsAppWebJsAdapter current-page injection retry', () => {
 
     release();
     await expect(first).resolves.toBeUndefined();
+  });
+});
+
+describe('WhatsAppWebJsAdapter recovery when navigation dies before the first inject', () => {
+  let rmSpy: jest.SpyInstance;
+  let clientInitSpy: jest.SpyInstance;
+  let clientInjectSpy: jest.SpyInstance;
+  let clientDestroySpy: jest.SpyInstance;
+  let savedWebVersion: string | undefined;
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    savedWebVersion = process.env.WWEBJS_WEB_VERSION;
+    process.env.WWEBJS_WEB_VERSION = 'off';
+    rmSpy = jest.spyOn(fs.promises, 'rm').mockResolvedValue(undefined);
+    clientInjectSpy = jest
+      .spyOn(Client.prototype as unknown as { inject: () => Promise<void> }, 'inject')
+      .mockResolvedValue(undefined);
+    clientDestroySpy = jest
+      .spyOn(Client.prototype as unknown as { destroy: () => Promise<void> }, 'destroy')
+      .mockResolvedValue(undefined);
+    clientInitSpy = jest.spyOn(Client.prototype as unknown as { initialize: () => Promise<void> }, 'initialize');
+  });
+
+  afterEach(() => {
+    rmSpy.mockRestore();
+    clientInitSpy.mockRestore();
+    clientInjectSpy.mockRestore();
+    clientDestroySpy.mockRestore();
+    jest.useRealTimers();
+    if (savedWebVersion === undefined) {
+      delete process.env.WWEBJS_WEB_VERSION;
+    } else {
+      process.env.WWEBJS_WEB_VERSION = savedWebVersion;
+    }
+  });
+
+  it('continues on the live page when page.goto detaches before Client.inject is reached', async () => {
+    const page = {
+      isClosed: jest.fn().mockReturnValue(false),
+      on: jest.fn(),
+    };
+    clientInitSpy.mockImplementationOnce(function (this: Client) {
+      this.pupPage = page as unknown as NonNullable<Client['pupPage']>;
+      throw new Error('Navigating frame was detached');
+    });
+    const adapter = new WhatsAppWebJsAdapter({
+      sessionId: 'sess-goto-recovery',
+      sessionDataPath: './data/sessions',
+      puppeteer: {},
+    });
+    const warnSpy = jest
+      .spyOn((adapter as unknown as { logger: { warn: (...args: unknown[]) => void } }).logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    const initialization = adapter.initialize({ onError: jest.fn() });
+    await jest.advanceTimersByTimeAsync(250);
+    await expect(initialization).resolves.toBeUndefined();
+
+    expect(clientInitSpy).toHaveBeenCalledTimes(1);
+    expect(clientInjectSpy).toHaveBeenCalledTimes(1);
+    expect(clientDestroySpy).not.toHaveBeenCalled();
+    expect(page.on).toHaveBeenCalledWith('framenavigated', expect.any(Function));
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/before its first injection/i),
+      expect.objectContaining({ action: 'init_goto_navigation_recovery', sessionId: 'sess-goto-recovery' }),
+    );
+  });
+
+  it('does not reuse a page that is already closed', async () => {
+    const page = {
+      isClosed: jest.fn().mockReturnValue(true),
+      on: jest.fn(),
+    };
+    clientInitSpy.mockImplementation(function (this: Client) {
+      this.pupPage = page as unknown as NonNullable<Client['pupPage']>;
+      throw new Error('Navigating frame was detached');
+    });
+    const adapter = new WhatsAppWebJsAdapter({
+      sessionId: 'sess-goto-closed',
+      sessionDataPath: './data/sessions',
+      puppeteer: {},
+    });
+
+    await expect(adapter.initialize({ onError: jest.fn() })).resolves.toBeUndefined();
+
+    expect(clientInjectSpy).not.toHaveBeenCalled();
+    expect(clientInitSpy).toHaveBeenCalledTimes(2);
   });
 });
 
