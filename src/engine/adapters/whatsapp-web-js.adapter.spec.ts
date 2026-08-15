@@ -441,6 +441,82 @@ describe('WhatsAppWebJsAdapter initialize() retry on a navigation-killed first i
   });
 });
 
+// Railway/Chrome 151 replaces WhatsApp Web's top frame just after the first load event. Retrying a
+// whole Client starts another page at the same race; the adapter now retries wwjs's private inject
+// on the current page so the replacement frame can settle and produce the QR.
+describe('WhatsAppWebJsAdapter current-page injection retry', () => {
+  type InjectableClient = Client & { inject: () => Promise<void> };
+  type AdapterWithInjectRepair = {
+    installNavigationResilientInject: (client: Client) => void;
+  };
+
+  const wrap = (inject: jest.Mock): { adapter: WhatsAppWebJsAdapter; client: InjectableClient } => {
+    const adapter = new WhatsAppWebJsAdapter({
+      sessionId: 'sess-current-page-retry',
+      sessionDataPath: './data/sessions',
+      puppeteer: {},
+    });
+    const client = { inject } as unknown as InjectableClient;
+    (adapter as unknown as AdapterWithInjectRepair).installNavigationResilientInject(client);
+    return { adapter, client };
+  };
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
+  it.each(['Navigating frame was detached', "Attempted to use detached Frame 'RAILWAY'"])(
+    'retries a navigation-killed inject against the same client: %s',
+    async reason => {
+      jest.useFakeTimers();
+      const inject = jest.fn().mockRejectedValueOnce(new Error(reason)).mockResolvedValueOnce(undefined);
+      const { adapter, client } = wrap(inject);
+      const warnSpy = jest
+        .spyOn((adapter as unknown as { logger: { warn: (...args: unknown[]) => void } }).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      const result = client.inject();
+      await jest.advanceTimersByTimeAsync(250);
+
+      await expect(result).resolves.toBeUndefined();
+      expect(inject).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/replacement frame/i),
+        expect.objectContaining({ action: 'inject_navigation_retry', sessionId: 'sess-current-page-retry' }),
+      );
+    },
+  );
+
+  it('does not hide or retry a non-navigation injection failure', async () => {
+    const failure = new Error('Failed to launch the browser process: Code 21');
+    const inject = jest.fn().mockRejectedValue(failure);
+    const { client } = wrap(inject);
+
+    await expect(client.inject()).rejects.toBe(failure);
+    expect(inject).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces concurrent framenavigated injections into one repair pipeline', async () => {
+    let release!: () => void;
+    const inject = jest.fn().mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          release = resolve;
+        }),
+    );
+    const { client } = wrap(inject);
+
+    const first = client.inject();
+    const second = client.inject();
+    expect(second).toBe(first);
+    expect(inject).toHaveBeenCalledTimes(1);
+
+    release();
+    await expect(first).resolves.toBeUndefined();
+  });
+});
+
 describe('buildProxyLaunchConfig (#628 — proxy credentials must not go into --proxy-server)', () => {
   it('strips credentials from an HTTP proxy and returns them as proxyAuthentication', () => {
     expect(buildProxyLaunchConfig('http://user:pass@proxy.example.com:8080')).toEqual({

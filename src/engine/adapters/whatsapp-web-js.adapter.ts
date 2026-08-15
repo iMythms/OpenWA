@@ -141,6 +141,14 @@ export interface WhatsAppWebJsConfig {
 const READY_RECONCILE_INTERVAL_MS = 2000;
 export const READY_RECONCILE_TIMEOUT_MS = 90_000;
 
+// Chrome can replace the top frame immediately after WhatsApp Web's first `load` event. In that
+// window whatsapp-web.js enters Client.inject() against the old frame and rejects instead of
+// waiting for the replacement document. Retrying the whole Client creates a new page at the same
+// point in the same navigation, so it deterministically loses the race again (observed on Railway
+// with Chrome 151). Retry the injection on the CURRENT page for a short bounded window instead.
+const INJECT_NAVIGATION_RETRY_DELAY_MS = 250;
+const INJECT_NAVIGATION_RETRY_WINDOW_MS = 15_000;
+
 // How long after `authenticated` the event bridge is allowed to still be attaching before a reload is
 // considered. whatsapp-web.js clears `eventsAttached` in its constructor (Client.js:109) and sets it
 // only once attachEventListeners() resolves (Client.js:373); in between it evaluates LoadUtils, polls
@@ -665,6 +673,7 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       ...(proxyAuthentication ? { proxyAuthentication } : {}),
       ...(versionPin ?? {}),
     });
+    this.installNavigationResilientInject(client);
     this.client = client;
 
     this.setupEventHandlers();
@@ -687,6 +696,62 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
     // browser leaves the client looking READY forever ("silent death"). Attach death listeners
     // to the puppeteer handles so a dead browser surfaces as a normal disconnect → reconnect.
     this.attachPuppeteerLifecycleListeners();
+  }
+
+  /**
+   * Make whatsapp-web.js's private `inject()` tolerate the page replacement that can land just
+   * after `page.goto(..., waitUntil: 'load')`. The library registers its `framenavigated` recovery
+   * only AFTER the first inject completes, so without this wrapper the initial navigation has no
+   * owner. Reusing the same Client/page is the critical distinction from the outer launch retry:
+   * once Chrome's replacement document settles, the next inject runs against that live frame.
+   *
+   * The wrapper also coalesces concurrent post-start navigation callbacks. whatsapp-web.js calls
+   * `inject()` from every `framenavigated` event; sharing one in-flight repair prevents two inject
+   * pipelines from racing to expose the same page bindings.
+   */
+  private installNavigationResilientInject(client: Client): void {
+    const injectable = client as Client & { inject?: () => Promise<void> };
+    const originalInject = injectable.inject?.bind(client);
+    if (!originalInject) return;
+
+    let inFlight: Promise<void> | null = null;
+    injectable.inject = (): Promise<void> => {
+      if (inFlight) return inFlight;
+
+      const run = async (): Promise<void> => {
+        const deadline = Date.now() + INJECT_NAVIGATION_RETRY_WINDOW_MS;
+        let retry = 0;
+        for (;;) {
+          try {
+            await originalInject();
+            return;
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            if (!isNavigationShapedInitRejection(reason) || Date.now() >= deadline || this.tearingDown) {
+              throw error;
+            }
+            retry += 1;
+            this.logger.warn(
+              `"${reason}" interrupted WhatsApp Web injection; waiting for the replacement frame and retrying`,
+              {
+                sessionId: this.config.sessionId,
+                attempt: retry,
+                action: 'inject_navigation_retry',
+              },
+            );
+            await new Promise<void>(resolve => {
+              const timer = setTimeout(resolve, INJECT_NAVIGATION_RETRY_DELAY_MS);
+              timer.unref?.();
+            });
+          }
+        }
+      };
+
+      inFlight = run().finally(() => {
+        inFlight = null;
+      });
+      return inFlight;
+    };
   }
 
   /**
