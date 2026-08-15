@@ -32,6 +32,13 @@ if [ -n "${RAILWAY_ENVIRONMENT_NAME:-${RAILWAY_ENVIRONMENT:-}}" ] && [ -z "${AUT
   export AUTO_START_SESSIONS=true
 fi
 
+# Remote WhatsApp HTML is injected with page.setContent(). On Railway/Chrome this can detach the
+# top frame during startup before whatsapp-web.js finishes initialization. Use WhatsApp's live,
+# first-party page there unless the operator deliberately selected a version strategy.
+if [ -n "${RAILWAY_ENVIRONMENT_NAME:-${RAILWAY_ENVIRONMENT:-}}" ] && [ -z "${WWEBJS_WEB_VERSION+x}" ]; then
+  export WWEBJS_WEB_VERSION=off
+fi
+
 # "$@" = CMD from Dockerfile (default: node dist/main).
 # gosu performs exec, so the node process replaces this shell and becomes the
 # direct child of dumb-init (PID 1), which can therefore forward SIGTERM cleanly.

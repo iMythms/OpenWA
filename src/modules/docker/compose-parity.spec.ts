@@ -389,4 +389,11 @@ describe('Railway single-replica runtime parity', () => {
     );
     expect(entrypoint).toContain('export AUTO_START_SESSIONS=true');
   });
+
+  it('uses first-party WhatsApp Web on Railway without overriding an explicit version strategy', () => {
+    expect(entrypoint).toContain(
+      'if [ -n "${RAILWAY_ENVIRONMENT_NAME:-${RAILWAY_ENVIRONMENT:-}}" ] && [ -z "${WWEBJS_WEB_VERSION+x}" ]; then',
+    );
+    expect(entrypoint).toContain('export WWEBJS_WEB_VERSION=off');
+  });
 });
