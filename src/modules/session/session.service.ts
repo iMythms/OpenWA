@@ -170,7 +170,17 @@ export class SessionService implements OnModuleDestroy, OnModuleInit, OnApplicat
     // duplicated work.
     const claimable = this.ownership?.claimableWhere() ?? [{}];
     const sessions = await this.sessionRepository.find({
-      where: claimable.map(clause => ({ ...clause, phone: Not(IsNull()), status: SessionStatus.DISCONNECTED })),
+      // FAILED is recoverable here: it records that the previous Chromium launch exhausted its
+      // retries, not that the WhatsApp account or persisted session row was retired. Excluding it
+      // made a transient host/image failure permanent across every later deployment — the row kept
+      // its phone (so it was previously authenticated) but auto-start silently selected nothing.
+      // Retrying both states lets the lifecycle's bounded stale-profile repair produce a fresh QR
+      // while preserving the session UUID and its scoped API-key/webhook bindings.
+      where: claimable.map(clause => ({
+        ...clause,
+        phone: Not(IsNull()),
+        status: In([SessionStatus.DISCONNECTED, SessionStatus.FAILED]),
+      })),
     });
 
     if (sessions.length === 0) return;

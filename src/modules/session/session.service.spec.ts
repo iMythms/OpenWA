@@ -5743,6 +5743,20 @@ describe('SessionService', () => {
       expect(startSpy).toHaveBeenCalledWith('b');
     });
 
+    it('retries both disconnected and failed previously-authenticated sessions', async () => {
+      process.env.AUTO_START_SESSIONS = 'true';
+      (repository.find as jest.Mock).mockResolvedValue([]);
+
+      service.onApplicationBootstrap();
+      await autoStartRun();
+
+      const calls = (repository.find as jest.Mock).mock.calls as Array<
+        [{ where: Array<{ status: { value: unknown } }> }]
+      >;
+      const where = calls[0][0].where[0];
+      expect(where.status.value).toEqual([SessionStatus.DISCONNECTED, SessionStatus.FAILED]);
+    });
+
     it('keeps starting the remaining sessions when one fails', async () => {
       process.env.AUTO_START_SESSIONS = 'true';
       (repository.find as jest.Mock).mockResolvedValue([
