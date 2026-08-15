@@ -1,6 +1,6 @@
 # Deployment State
 
-Updated: 2026-08-14
+Updated: 2026-08-15
 
 ## Local Development and Smoke Testing
 
@@ -17,6 +17,16 @@ Updated: 2026-08-14
 2. Kubernetes via `charts/openwa/`: supported packaging as a single-replica StatefulSet with PVC, probes, hardening, optional Ingress, PDB, and ServiceMonitor.
 3. Container PaaS or VM: deploy the production image only where a persistent volume can be mounted at `/app/data`, WebSockets and long-lived connections are supported, health checks can target `/api/health/ready`, and the service can remain a single replica.
 4. Bare Node.js: possible with Node 22+, system Chromium when using `whatsapp-web.js`, FFmpeg for conversion features, durable storage, and an external process supervisor/reverse proxy; operationally less reproducible than the image.
+
+## Active Railway Production (2026-08-15)
+
+- Railway project `OpenWA Production` (`b95b1f7a-4330-4d0e-989b-de34cf58b390`) is active on the Hobby plan.
+- Service `OpenWA` (`ee0ba356-c6b1-4266-bd6e-4f74d5a09396`) deploys the `iMythms/OpenWA` repository Dockerfile to one EU West replica.
+- Public endpoint: `https://openwa-production-1cb3.up.railway.app`.
+- Persistent volume `openwa-volume` (`bb0d5cd5-504b-486a-9aad-7883b73888a4`) is mounted at `/app/data`.
+- Railway health checking uses `/api/health/ready`; the readiness endpoint and dashboard both returned HTTP 200 after the initial rollout.
+- `NODE_ENV=production` is pinned as a Railway service variable. Other configuration remains dashboard-managed or defaults to the persisted `data/.env.generated` layer.
+- Railway Hobby does not expose scheduled backups or point-in-time recovery; the Backups page requires Pro. Persistent storage is active, but an independent export/backup workflow is still required for recoverability.
 
 ## Initial Platform Assessment (2026-08-14)
 

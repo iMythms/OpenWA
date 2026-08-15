@@ -1,6 +1,6 @@
 # Knowledge Index
 
-Updated: 2026-08-14
+Updated: 2026-08-15
 
 - [`knowledge/project.md`](knowledge/project.md) — product purpose, architecture, runtime, persistence, and repository structure.
 - [`knowledge/deployment.md`](knowledge/deployment.md) — supported local and production deployment paths, constraints, and operational requirements.
