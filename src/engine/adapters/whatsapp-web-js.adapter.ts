@@ -112,7 +112,11 @@ export function isExecutionContextDestroyedError(reason: string): boolean {
  * (Client.js:502 vs :504), so a navigation landing during it is caught by nothing upstream (#1081).
  */
 function isNavigationShapedInitRejection(reason: string): boolean {
-  return isExecutionContextDestroyedError(reason) || /window\.require is not a function/i.test(reason);
+  return (
+    isExecutionContextDestroyedError(reason) ||
+    /window\.require is not a function/i.test(reason) ||
+    /(?:navigating frame was detached|attempted to use detached frame)/i.test(reason)
+  );
 }
 
 export interface WhatsAppWebJsConfig {

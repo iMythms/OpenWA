@@ -324,6 +324,19 @@ describe('WhatsAppWebJsAdapter initialize() retry on a navigation-killed first i
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it.each(['Navigating frame was detached', "Attempted to use detached Frame 'ABC123'"])(
+    'retries the detached-frame navigation variant too: %s',
+    async reason => {
+      clientInitSpy.mockRejectedValueOnce(new Error(reason)).mockResolvedValueOnce(undefined);
+      const onError = jest.fn();
+
+      await expect(newAdapter().initialize({ onError })).resolves.toBeUndefined();
+
+      expect(clientInitSpy).toHaveBeenCalledTimes(2);
+      expect(onError).not.toHaveBeenCalled();
+    },
+  );
+
   it('fails terminally after the single retry: onError exactly once, raw error rethrown', async () => {
     clientInitSpy.mockRejectedValue(new Error(EXEC_CTX));
     const onError = jest.fn();
