@@ -50,8 +50,7 @@ export function resolveNonNegativeIntEnv(raw: string | undefined, fallback: numb
  * The UI locale Chromium is pinned to. WhatsApp Web renders its chrome — including the new-account
  * onboarding modal the whatsapp-web.js adapter dismisses (#982) — in the browser's language, and that
  * detector matches visible English text. Without a pin the language is whatever the launched binary
- * defaults to, which differs between the amd64 (Chrome for Testing) and arm64 (Debian chromium) images
- * and between host installs.
+ * defaults to, which can differ between container and host installations.
  */
 export const PINNED_BROWSER_LOCALE = 'en-US';
 

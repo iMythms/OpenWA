@@ -370,7 +370,7 @@ describe('resolveNonNegativeIntEnv', () => {
 
 // WhatsApp Web renders its chrome in the BROWSER's language, and the onboarding-modal detector (#982)
 // matches visible English text. Pinning the locale is what makes that match deterministic across the
-// amd64 (Chrome for Testing) and arm64 (Debian chromium) images and any host install.
+// container images and host installs.
 describe('withPinnedBrowserLocale', () => {
   it('appends the pin when the args carry no --lang', () => {
     expect(withPinnedBrowserLocale(['--no-sandbox'])).toEqual(['--no-sandbox', `--lang=${PINNED_BROWSER_LOCALE}`]);

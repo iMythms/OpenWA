@@ -753,7 +753,12 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
             return;
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
-            if (!isNavigationShapedInitRejection(reason) || Date.now() >= deadline || this.tearingDown) {
+            if (
+              (injectable.pupBrowser && !injectable.pupBrowser.connected) ||
+              !isNavigationShapedInitRejection(reason) ||
+              Date.now() >= deadline ||
+              this.tearingDown
+            ) {
               throw error;
             }
             retry += 1;
@@ -782,11 +787,10 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
   }
 
   /**
-   * Finish whatsapp-web.js initialization when Chrome detaches the frame DURING page.goto(), before
-   * upstream ever calls inject(). Production proves this boundary via the absence of our
-   * `inject_navigation_retry` log immediately before Client.initialize() rejects. At that point the
-   * Client already exposes its browser Page, so launching another browser is both unnecessary and
-   * harmful: the second page loses the exact same race.
+   * Finish whatsapp-web.js initialization when a still-connected Chrome detaches the frame DURING
+   * page.goto(), before upstream ever calls inject(). A crashed browser can leave a Page object whose
+   * isClosed() is still false, so browser.connected is the authoritative gate: never spend the retry
+   * window evaluating through a stale handle after SIGSEGV/transport death.
    */
   private async recoverNavigationBeforeInitialInject(
     client: Client,
@@ -798,7 +802,7 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
 
     const internal = client as WwebjsClientInternals;
     const page = internal.pupPage;
-    if (!page || page.isClosed()) return false;
+    if (!internal.pupBrowser?.connected || !page || page.isClosed()) return false;
 
     this.logger.warn(
       `"${reason}" interrupted WhatsApp Web navigation before its first injection; ` +

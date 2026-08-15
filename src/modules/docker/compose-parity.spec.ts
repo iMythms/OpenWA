@@ -379,8 +379,10 @@ describe('Railway single-replica runtime parity', () => {
   const dockerfile = readFileSync(join(__dirname, '../../../Dockerfile'), 'utf8');
   const entrypoint = readFileSync(join(__dirname, '../../../docker-entrypoint.sh'), 'utf8');
 
-  it('keeps the amd64 browser on the same Chrome generation as the verified arm64 image', () => {
-    expect(dockerfile).toContain("browsers install 'chrome@151.0.7922.138'");
+  it('uses the Railway-verified Debian Chromium runtime on both architectures', () => {
+    expect(dockerfile).toContain('    chromium \\\n');
+    expect(dockerfile).toContain('RUN ln -s /usr/bin/chromium /usr/local/bin/puppeteer-chrome');
+    expect(dockerfile).not.toContain('browsers install');
   });
 
   it('auto-starts persisted sessions on Railway without overriding an explicit operator value', () => {

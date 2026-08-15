@@ -497,6 +497,18 @@ describe('WhatsAppWebJsAdapter current-page injection retry', () => {
     expect(inject).toHaveBeenCalledTimes(1);
   });
 
+  it('does not retry a detached frame after the browser transport disconnected', async () => {
+    jest.useFakeTimers();
+    const failure = new Error('Navigating frame was detached');
+    const inject = jest.fn().mockRejectedValue(failure);
+    const { client } = wrap(inject);
+    client.pupBrowser = { connected: false } as unknown as NonNullable<Client['pupBrowser']>;
+
+    await expect(client.inject()).rejects.toBe(failure);
+    expect(inject).toHaveBeenCalledTimes(1);
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('coalesces concurrent framenavigated injections into one repair pipeline', async () => {
     let release!: () => void;
     const inject = jest.fn().mockImplementation(
@@ -558,6 +570,7 @@ describe('WhatsAppWebJsAdapter recovery when navigation dies before the first in
     };
     clientInitSpy.mockImplementationOnce(function (this: Client) {
       this.pupPage = page as unknown as NonNullable<Client['pupPage']>;
+      this.pupBrowser = { connected: true, on: jest.fn() } as unknown as NonNullable<Client['pupBrowser']>;
       throw new Error('Navigating frame was detached');
     });
     const adapter = new WhatsAppWebJsAdapter({
@@ -590,6 +603,7 @@ describe('WhatsAppWebJsAdapter recovery when navigation dies before the first in
     };
     clientInitSpy.mockImplementation(function (this: Client) {
       this.pupPage = page as unknown as NonNullable<Client['pupPage']>;
+      this.pupBrowser = { connected: true, on: jest.fn() } as unknown as NonNullable<Client['pupBrowser']>;
       throw new Error('Navigating frame was detached');
     });
     const adapter = new WhatsAppWebJsAdapter({

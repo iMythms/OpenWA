@@ -13,6 +13,11 @@ FROM --platform=$BUILDPLATFORM docker.io/node:22-slim AS builder
 
 WORKDIR /app
 
+# The application image uses Debian Chromium, so neither build stage needs Puppeteer's browser
+# downloader. This is the current Puppeteer env name (the old *_CHROMIUM_* spelling is ignored by
+# 24.x) and also keeps @puppeteer/browsers' zip extractor off the image-build path.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
@@ -54,18 +59,17 @@ RUN npm run build && npm run dashboard:ci -- --include=dev && npm run dashboard:
 # ===== Stage 2: Production =====
 FROM docker.io/node:22-slim AS production
 
-# Chrome for Testing has no linux-arm64 build, and Puppeteer's chromium snapshot
-# is x86_64-only on Linux too. So: amd64 uses Chrome for Testing (downloaded below)
-# to avoid the Debian chromium package's K8s SIGTRAP under strict non-root/seccomp;
-# arm64 installs Debian's chromium instead (it ships a native arm64 build). Both
-# resolve to the same /usr/local/bin/puppeteer-chrome symlink below.
+# Use Debian Chromium on BOTH architectures. Chrome for Testing 151.0.7922.138 reproducibly
+# SIGSEGVs in Railway's x86_64 runtime as soon as WhatsApp Web navigates (Puppeteer then surfaces a
+# misleading detached-frame error). Debian Chromium 151.0.7922.137 completes that same navigation
+# in the same Railway container, and it is also the browser used by the verified local arm64 image.
+# One distribution across both architectures is the runtime parity that matters here.
 #
 # chromium-sandbox is listed EXPLICITLY (not left to Recommends) so --no-install-recommends still
 # trims every other Recommends but keeps the setuid sandbox binary available. Our default forces
 # --no-sandbox (configuration.ts) so it goes unused, but a user who overrides PUPPETEER_ARGS to drop
 # --no-sandbox would otherwise get a chromium that can't launch. Verified on real arm64 hardware:
 # with --no-install-recommends the package is dropped, and chromium launches fine under --no-sandbox.
-ARG TARGETARCH
 # sqlite3 ships the CLI so an in-container scripts/backup.sh run takes online-consistent SQLite
 # snapshots (.backup) instead of plain-copying a live database (which can archive a torn file).
 #
@@ -76,7 +80,8 @@ ARG TARGETARCH
 # release image scan. It is the Debian package rather than a bundled static build precisely so that
 # codec CVEs arrive through the same security stream as everything else here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    $([ "$TARGETARCH" = arm64 ] && echo "chromium chromium-sandbox") \
+    chromium \
+    chromium-sandbox \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
@@ -103,8 +108,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Puppeteer to skip automatic download during npm install (we download it explicitly below)
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+# Keep the browser download disabled for the production-stage npm install too.
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Create app user for security
 RUN groupadd -r openwa && useradd -r -g openwa openwa
@@ -146,19 +151,8 @@ RUN npm ci --omit=dev \
 # was generated with and only the global CLI is swapped.
 RUN npm install -g npm@12 && npm cache clean --force
 
-# amd64: download Chrome for Testing via Puppeteer and symlink it.
-# arm64: use Debian's chromium installed above (CfT has no linux-arm64 build).
-# test -n guards against a future path mismatch failing loudly instead of shipping a broken image.
-RUN if [ "$TARGETARCH" = arm64 ]; then \
-        ln -s /usr/bin/chromium /usr/local/bin/puppeteer-chrome; \
-    else \
-        mkdir -p /opt/puppeteer && \
-        PUPPETEER_CACHE_DIR=/opt/puppeteer ./node_modules/.bin/puppeteer browsers install 'chrome@151.0.7922.138' && \
-        chown -R openwa:openwa /opt/puppeteer && \
-        chrome_path=$(find /opt/puppeteer/chrome/linux*/chrome-linux64/chrome | head -n 1) && \
-        test -n "$chrome_path" && \
-        ln -s "$chrome_path" /usr/local/bin/puppeteer-chrome; \
-    fi
+# Keep the public executable path stable for configuration and operator tooling.
+RUN ln -s /usr/bin/chromium /usr/local/bin/puppeteer-chrome
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/puppeteer-chrome
 
 # Copy built application from builder stage

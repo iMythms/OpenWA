@@ -40,10 +40,10 @@ const ALLOWLIST = [
       'in overrides moves it. @puppeteer/browsers 3.x drops extract-zip for modern-tar, but forcing it past ' +
       'those pins pulls yargs 18 and modern-tar (both type:module) into a CommonJS Jest run and 60 suites ' +
       'fail to load; that was measured, not assumed. ' +
-      'Reachability: the vulnerable path is zip extraction inside `puppeteer browsers install`, which this ' +
-      'repo calls once, at IMAGE BUILD time, on amd64 only (Dockerfile — arm64 symlinks Debian chromium and ' +
-      'never calls it), against a version-pinned Chrome for Testing build fetched from Google over HTTPS. ' +
-      'Nothing in the shipped image extracts a zip through this path at runtime.',
+      'Reachability: the vulnerable path is zip extraction inside `puppeteer browsers install`. The Dockerfile ' +
+      'sets PUPPETEER_SKIP_DOWNLOAD in both stages and installs Debian chromium through apt, so neither the image ' +
+      'build nor the application runtime invokes that extractor. Only an operator manually running Puppeteer\'s ' +
+      'browser-install CLI could reach it.',
     removeWhen:
       'whatsapp-web.js ships a release whose puppeteer pin carries @puppeteer/browsers 3.x. Re-check with ' +
       '`npm view whatsapp-web.js dependencies.puppeteer` then `npm view puppeteer-core@<v> dependencies`.',
