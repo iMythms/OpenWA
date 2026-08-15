@@ -24,6 +24,14 @@ if ! mkdir -p "${XDG_CONFIG_HOME:-/tmp/.config}" "${XDG_CACHE_HOME:-/tmp/.cache}
 fi
 chown openwa:openwa "${XDG_CONFIG_HOME:-/tmp/.config}" "${XDG_CACHE_HOME:-/tmp/.cache}"
 
+# Railway runs this Dockerfile directly instead of through docker-compose.yml. A stateful,
+# single-replica Railway deployment must therefore recover its authenticated sessions after every
+# image replacement just like docker-compose.dev.yml does locally. Keep an explicit operator value
+# authoritative: only supply the Railway default when AUTO_START_SESSIONS is genuinely unset.
+if [ -n "${RAILWAY_ENVIRONMENT_NAME:-${RAILWAY_ENVIRONMENT:-}}" ] && [ -z "${AUTO_START_SESSIONS+x}" ]; then
+  export AUTO_START_SESSIONS=true
+fi
+
 # "$@" = CMD from Dockerfile (default: node dist/main).
 # gosu performs exec, so the node process replaces this shell and becomes the
 # direct child of dumb-init (PID 1), which can therefore forward SIGTERM cleanly.

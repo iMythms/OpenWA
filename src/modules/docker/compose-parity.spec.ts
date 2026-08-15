@@ -374,3 +374,19 @@ describe('DockerService managed specs ↔ docker-compose.yml parity', () => {
     });
   });
 });
+
+describe('Railway single-replica runtime parity', () => {
+  const dockerfile = readFileSync(join(__dirname, '../../../Dockerfile'), 'utf8');
+  const entrypoint = readFileSync(join(__dirname, '../../../docker-entrypoint.sh'), 'utf8');
+
+  it('keeps the amd64 browser on the same Chrome generation as the verified arm64 image', () => {
+    expect(dockerfile).toContain("browsers install 'chrome@151.0.7922.138'");
+  });
+
+  it('auto-starts persisted sessions on Railway without overriding an explicit operator value', () => {
+    expect(entrypoint).toContain(
+      'if [ -n "${RAILWAY_ENVIRONMENT_NAME:-${RAILWAY_ENVIRONMENT:-}}" ] && [ -z "${AUTO_START_SESSIONS+x}" ]; then',
+    );
+    expect(entrypoint).toContain('export AUTO_START_SESSIONS=true');
+  });
+});
