@@ -122,6 +122,7 @@ export interface WhatsAppWebJsConfig {
     headless?: boolean;
     args?: string[];
     executablePath?: string;
+    protocolTimeout?: number;
   };
   // Phase 3: Proxy per session
   proxy?: {
@@ -165,6 +166,19 @@ export const NAVIGATION_REINJECT_GRACE_MS = 60_000;
 // watchdog forever and leave a zombie session READY that only ever answers 409. Past this cap the
 // probe reports the truth again and the watchdog takes over.
 export const NAVIGATION_EPISODE_CAP_MS = 3 * NAVIGATION_REINJECT_GRACE_MS;
+
+/**
+ * Errors proving that Chromium's DevTools transport is closed or no longer servicing page calls.
+ * Puppeteer's timeout is a `ProtocolError`, but its `.message` omits that class name and contains
+ * only `Runtime.callFunctionOn timed out...`; match the emitted message as well as the older
+ * close/error signatures so a wedged renderer is reconnected instead of left READY indefinitely.
+ */
+export function isPuppeteerPageTransportError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /protocol error|target closed|targetclosederror|detached frame|session closed|connection closed|runtime\.[a-z]+ timed out|increase the ['"]protocoltimeout['"] setting/i.test(
+    message,
+  );
+}
 
 // The single in-adapter retry of a navigation-killed first inject only runs while at least this much
 // of the lifecycle's outer init deadline remains — a retry the outer race SIGKILLs mid-launch would
@@ -604,6 +618,10 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
       puppeteer: {
         headless: this.config.puppeteer?.headless ?? true,
         args: puppeteerArgs,
+        // Puppeteer's default is several minutes. A wedged WhatsApp Web renderer therefore blocks
+        // every send for minutes before the watchdog can recycle the session. Keep the upstream
+        // default when unset, but let production deployments choose a short, explicit bound.
+        ...(this.config.puppeteer?.protocolTimeout ? { protocolTimeout: this.config.puppeteer.protocolTimeout } : {}),
         // Do NOT let Puppeteer install its own process signal handlers. By default it handles
         // SIGINT (→ synchronous process.exit(130), which would skip the graceful drain entirely)
         // and SIGTERM/SIGHUP (→ kills Chromium at signal time, defeating the drain window). We own
@@ -1109,13 +1127,9 @@ export class WhatsAppWebJsAdapter extends EventEmitter implements IWhatsAppEngin
    * Error-message signatures of a dead page/transport: Puppeteer raises these when the browser
    * process, the renderer, or the CDP connection is gone (e.g. 'Protocol error: Target closed').
    */
-  private static readonly PAGE_TRANSPORT_ERROR_PATTERN =
-    /protocol error|target closed|targetclosederror|detached frame|session closed|connection closed/i;
-
-  /** Whether the error carries a dead page/transport signature (see PAGE_TRANSPORT_ERROR_PATTERN). */
+  /** Whether the error carries a dead page/transport signature. */
   private isPageTransportError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return WhatsAppWebJsAdapter.PAGE_TRANSPORT_ERROR_PATTERN.test(message);
+    return isPuppeteerPageTransportError(error);
   }
 
   /**

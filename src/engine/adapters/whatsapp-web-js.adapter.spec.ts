@@ -17,6 +17,7 @@ import {
   READY_RECONCILE_BRIDGE_RELOAD_GRACE_MS,
   NAVIGATION_REINJECT_GRACE_MS,
   NAVIGATION_EPISODE_CAP_MS,
+  isPuppeteerPageTransportError,
 } from './whatsapp-web-js.adapter';
 import { getEffectiveWebVersionInfo, resolveWebVersionPin, __resetWebVersionCache } from '../wa-web-version';
 import * as fs from 'fs';
@@ -53,6 +54,19 @@ jest.mock('qrcode', () => ({
   __esModule: true,
   toDataURL: jest.fn(() => Promise.resolve('data:image/png;base64,FAKEQR')),
 }));
+
+describe('Puppeteer page transport errors', () => {
+  it.each([
+    'Protocol error: Target closed',
+    "Runtime.callFunctionOn timed out. Increase the 'protocolTimeout' setting in launch/connect calls for a higher timeout if needed.",
+  ])('classifies %s as a dead or wedged page', message => {
+    expect(isPuppeteerPageTransportError(new Error(message))).toBe(true);
+  });
+
+  it('does not classify a recipient refusal as transport death', () => {
+    expect(isPuppeteerPageTransportError(new Error('No LID for user'))).toBe(false);
+  });
+});
 
 // Spying on child_process.execFile must target the real module exports: the TypeScript __importStar
 // namespace wrapper that `import * as childProcess` yields has non-configurable members, so

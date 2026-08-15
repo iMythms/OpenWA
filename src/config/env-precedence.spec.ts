@@ -145,6 +145,7 @@ describe('blank-shadowed env keys (compose ${VAR:-} forwards the dashboard manag
       'PUPPETEER_HEADLESS',
       'SESSION_DATA_PATH',
       'PUPPETEER_ARGS',
+      'PUPPETEER_PROTOCOL_TIMEOUT_MS',
     ]) {
       expect(BLANK_SHADOWED_ENV_KEYS).toContain(key);
     }

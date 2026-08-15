@@ -76,6 +76,25 @@ describe('configuration — Puppeteer args delimiter', () => {
   });
 });
 
+describe('configuration — Puppeteer protocol timeout', () => {
+  const orig = process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS;
+
+  afterEach(() => {
+    if (orig === undefined) delete process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS;
+    else process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS = orig;
+  });
+
+  it('preserves Puppeteer default behavior when unset', () => {
+    delete process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS;
+    expect(configuration().engine.puppeteer.protocolTimeout).toBeUndefined();
+  });
+
+  it('passes an explicit production bound through as milliseconds', () => {
+    process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS = '30000';
+    expect(configuration().engine.puppeteer.protocolTimeout).toBe(30000);
+  });
+});
+
 describe('configuration — Postgres pool timeouts', () => {
   const keys = ['DATABASE_STATEMENT_TIMEOUT_MS', 'DATABASE_IDLE_TIMEOUT_MS', 'DATABASE_CONNECTION_TIMEOUT_MS'];
   const orig: Record<string, string | undefined> = {};

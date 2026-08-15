@@ -205,6 +205,11 @@ export default () => ({
       // uses Puppeteer's bundled Chromium. Required on hosts where the bundled binary
       // is missing or incompatible (Alpine, ARM, custom base images).
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      // Bound one Chrome DevTools Protocol call. Unset preserves Puppeteer's default; production
+      // can shorten it so a wedged renderer is failed and recycled before a send hangs for minutes.
+      protocolTimeout: process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS
+        ? parseInt(process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS, 10)
+        : undefined,
     },
     sessionDataPath: process.env.SESSION_DATA_PATH || './data/sessions',
     // Baileys engine (used when ENGINE_TYPE=baileys). Multi-file auth state base dir; each session

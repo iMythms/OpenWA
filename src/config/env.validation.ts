@@ -261,6 +261,7 @@ export function validateEnv(config: EnvConfig): EnvConfig {
     'SESSION_LEASE_HEARTBEAT_MS',
     'SESSION_TAKEOVER_SWEEP_MS',
     'SESSION_PROXY_TIMEOUT_MS',
+    'PUPPETEER_PROTOCOL_TIMEOUT_MS',
   ]) {
     checkPositiveInt(key);
   }
