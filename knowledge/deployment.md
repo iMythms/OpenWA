@@ -22,7 +22,8 @@ Updated: 2026-08-15
 
 - Railway project `OpenWA Production` (`b95b1f7a-4330-4d0e-989b-de34cf58b390`) is active on the Hobby plan.
 - Service `OpenWA` (`ee0ba356-c6b1-4266-bd6e-4f74d5a09396`) deploys the `iMythms/OpenWA` repository Dockerfile to one EU West replica.
-- Public endpoint: `https://openwa-production-1cb3.up.railway.app`.
+- Public endpoints: custom production domain `https://wa.syabhr.com` and Railway fallback `https://openwa-production-1cb3.up.railway.app`.
+- `wa.syabhr.com` is registered as a Railway custom domain targeting service port `8080`. Vercel DNS owns `syabhr.com` and publishes `wa CNAME 4c200m7w.up.railway.app` plus Railway's `_railway-verify.wa` TXT verification record. Trusted HTTPS, the dashboard, and `/api/health/ready` returned HTTP 200 after certificate provisioning.
 - Persistent volume `openwa-volume` (`bb0d5cd5-504b-486a-9aad-7883b73888a4`) is mounted at `/app/data`.
 - Railway health checking uses `/api/health/ready`; the readiness endpoint and dashboard both returned HTTP 200 after the initial rollout.
 - `NODE_ENV=production` is pinned as a Railway service variable. Other configuration remains dashboard-managed or defaults to the persisted `data/.env.generated` layer.
