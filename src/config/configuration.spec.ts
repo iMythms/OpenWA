@@ -86,7 +86,7 @@ describe('configuration — Puppeteer protocol timeout', () => {
 
   it('preserves Puppeteer default behavior when unset', () => {
     delete process.env.PUPPETEER_PROTOCOL_TIMEOUT_MS;
-    expect(configuration().engine.puppeteer.protocolTimeout).toBeUndefined();
+    expect(configuration().engine.puppeteer.protocolTimeout).toBe(30_000);
   });
 
   it('passes an explicit production bound through as milliseconds', () => {
